@@ -1,0 +1,45 @@
+# =============================================================================
+# LiveAgent Bundle Conda Recipe
+#
+# Packages the pre-built liveagent-centos7-x86_64.tar.gz for conda installation.
+# Uses the same technique as opencode-centos7: patchelf at install time via $PREFIX.
+#
+# The bundle must be built first: bash build.sh
+# Place the tar.gz in conda/ before building this recipe.
+# =============================================================================
+
+{% set name = "liveagent" %}
+{% set version = "1.3.0" %}
+
+package:
+  name: {{ name }}
+  version: {{ version }}
+
+source:
+  path: .
+
+build:
+  number: 0
+  string: centos7_0
+  noarch: generic
+  script_env:
+    # BUNDLE_TARBALL must point to the pre-built tar.gz
+    - BUNDLE_TARBALL
+
+requirements:
+  host:
+    - patchelf
+  run:
+    - patchelf
+
+about:
+  home: https://github.com/Stack-Cairn/LiveAgent
+  summary: LiveAgent v1.3.0 — packaged for CentOS 7 with bundled glibc 2.39
+  description: |
+    LiveAgent v1.3.0 bundled with all dependencies including Ubuntu 24.04
+    glibc 2.39. Uses ld-linux bootstrap technique to bypass CentOS 7's
+    glibc 2.17. Patchelf is applied at install time via $PREFIX, making
+    the package relocatable.
+    
+    Based on the technique from opencode-centos7:
+    https://github.com/FSSlc/opencode-centos7

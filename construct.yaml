@@ -1,0 +1,39 @@
+# =============================================================================
+# LiveAgent Constructor Installer — for CentOS 7
+#
+# Builds a self-extracting .sh installer.
+# Uses the same approach as opencode-centos7.
+#
+# Build:
+#   1. Build the bundle:        bash build.sh
+#   2. Build the conda package: conda build conda/ -c conda-forge
+#   3. Build the installer:     constructor .
+#
+# This produces: liveagent-1.3.0-Linux-x86_64.sh
+# =============================================================================
+
+name: liveagent
+version: "1.3.0"
+
+channels:
+  - ./output/conda-channel
+  - conda-forge
+
+specs:
+  - liveagent 1.3.0 centos7_0
+  - patchelf
+
+# Run after all packages are installed
+post_install: conda/post-install.sh
+
+# Installer metadata
+installer_filename: liveagent-${version}-Linux-${arch}.sh
+initialize_by_default: false
+register_python_default: false
+
+# Keep the installer small — only include what we need
+extra_envs:
+  liveagent:
+    specs:
+      - liveagent 1.3.0 centos7_0
+      - patchelf

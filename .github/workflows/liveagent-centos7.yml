@@ -1,0 +1,230 @@
+name: Build LiveAgent for CentOS 7
+
+on:
+  workflow_dispatch:
+    inputs:
+      appimage_url:
+        description: 'LiveAgent AppImage download URL'
+        required: false
+        default: 'https://github.com/Stack-Cairn/LiveAgent/releases/download/v1.3.0/LiveAgent-v1.3.0-Linux-x86_64.AppImage'
+        type: string
+      tag:
+        description: 'Release tag (e.g., v1.3.0-centos7)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  # ===========================================================================
+  # Build stage: produces the unpatched bundle (CONDA_BUILD=1)
+  # ===========================================================================
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            curl ca-certificates file patchelf squashfs-tools binutils \
+            libwayland-client0 libwayland-cursor0 libwayland-egl1 libwayland-server0 \
+            libxkbcommon0 \
+            libfribidi0 libharfbuzz0b libfontconfig1 libfreetype6 libexpat1 \
+            libdrm2 libxcb1 libx11-6 libx11-xcb1 libgbm1 libegl1 libgl1
+
+      - name: Build bundle (conda mode — no patchelf)
+        env:
+          APPIMAGE_URL: ${{ github.event.inputs.appimage_url }}
+        run: |
+          export CONDA_BUILD=1
+          export APPIMAGE_URL="$APPIMAGE_URL"
+          export WORK_DIR=/tmp/liveagent-build
+          export OUTPUT_DIR=${{ github.workspace }}/output
+          bash build.sh
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: liveagent-centos7
+          path: output/liveagent-centos7-x86_64.tar.gz*
+
+  # ===========================================================================
+  # Conda Constructor: builds conda package + .sh installer
+  # ===========================================================================
+  conda-constructor:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: liveagent-centos7
+          path: artifact/
+
+      - name: Setup Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          python-version: '3.11'
+          channels: conda-forge
+          miniforge-version: latest
+
+      - name: Install conda-build + constructor
+        shell: bash -el {0}
+        run: |
+          conda install -y conda-build constructor
+
+      - name: Build conda package
+        shell: bash -el {0}
+        run: |
+          # Copy bundle to conda/ for the recipe
+          cp artifact/liveagent-centos7-x86_64.tar.gz conda/
+
+          # Build conda package
+          conda build \
+            --output-folder output/conda-channel \
+            conda/ \
+            2>&1 | tail -30
+
+      - name: Build constructor installer
+        shell: bash -el {0}
+        run: |
+          # Index the local channel
+          conda index output/conda-channel
+
+          # Build the constructor installer
+          constructor . --output-dir output/ --platform linux-64 2>&1 | tail -20
+
+      - name: Upload constructor installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: liveagent-constructor
+          path: output/liveagent-*.sh
+
+  # ===========================================================================
+  # Verify stage: tests on CentOS 7
+  # ===========================================================================
+  verify-centos7:
+    needs: [build, conda-constructor]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: liveagent-centos7
+          path: artifact/
+
+      - name: Test 1 Library resolution on centos:7
+        run: |
+          docker run --rm -v "${{ github.workspace }}/artifact:/artifact:ro" centos:7 bash -c '
+            echo "=== CentOS 7: $(cat /etc/centos-release) ==="
+            echo "System glibc: $(/lib64/libc.so.6 2>&1 | head -1)"
+            echo ""
+
+            mkdir -p /opt/liveagent
+            tar -xzf /artifact/liveagent-centos7-x86_64.tar.gz -C /opt/liveagent
+
+            # Note: in conda mode, binaries are NOT patchelf'd — test via ld-linux directly
+            echo "=== Bundled ld-linux: $(/opt/liveagent/lib64/ld-linux-x86-64.so.2 --version 2>&1 | head -1) ==="
+            echo ""
+
+            echo "=== Library dependency resolution ==="
+            unresolved=$(/opt/liveagent/lib64/ld-linux-x86-64.so.2 \
+              --library-path /opt/liveagent/lib64:/opt/liveagent/lib:/opt/liveagent/usr/lib:/opt/liveagent/usr/lib/x86_64-linux-gnu \
+              --list /opt/liveagent/usr/bin/liveagent 2>&1 | grep "not found" || true)
+            if [ -z "$unresolved" ]; then
+              echo "PASS: All shared libraries resolved."
+            else
+              echo "FAIL: Unresolved libraries:"
+              echo "$unresolved"
+              exit 1
+            fi
+            echo "Bundled libs: $(ls /opt/liveagent/lib64/ | wc -l)"
+          '
+
+      - name: Test 2 Functional verification on CentOS 7 with Xvfb
+        run: |
+          docker run --rm -v "${{ github.workspace }}/artifact:/artifact:ro" centos:7 bash -c '
+            sed -i "s/mirrorlist/#mirrorlist/g" /etc/yum.repos.d/CentOS-* 2>/dev/null
+            sed -i "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-* 2>/dev/null
+            yum clean all > /dev/null 2>&1
+
+            yum install -y -q xorg-x11-server-Xvfb mesa-libEGL mesa-libGL \
+              libXrandr libXcursor libXinerama libXcomposite libXi libXdamage \
+              libXext libXfixes libXrender libX11 patchelf 2>&1 | tail -1
+
+            echo "=== Starting Xvfb ==="
+            Xvfb :99 -screen 0 1280x720x24 -ac +extension GLX +render &
+            sleep 2
+
+            echo "=== Installing package ==="
+            mkdir -p /opt/liveagent
+            tar -xzf /artifact/liveagent-centos7-x86_64.tar.gz -C /opt/liveagent
+
+            echo "=== Patching (simulating post-install.sh) ==="
+            BUNDLE=/opt/liveagent
+            find "$BUNDLE" -type f | while read -r f; do
+                echo "$f" | grep -q "ld-linux-x86-64.so.2" && continue
+                file "$f" 2>/dev/null | grep -q ELF || continue
+                patchelf --set-interpreter "$BUNDLE/lib64/ld-linux-x86-64.so.2" "$f" 2>/dev/null || true
+                patchelf --set-rpath "$BUNDLE/lib64:$BUNDLE/lib:$BUNDLE/lib/x86_64-linux-gnu:$BUNDLE/usr/lib:$BUNDLE/usr/lib64:$BUNDLE/usr/lib/x86_64-linux-gnu" "$f" 2>/dev/null || true
+            done
+
+            echo "=== Launching LiveAgent ==="
+            export DISPLAY=:99 LC_ALL=C LANG=C
+            "${BUNDLE}/lib64/ld-linux-x86-64.so.2" \
+              --library-path "${BUNDLE}/lib64:${BUNDLE}/lib:${BUNDLE}/lib/x86_64-linux-gnu:${BUNDLE}/usr/lib:${BUNDLE}/usr/lib64:${BUNDLE}/usr/lib/x86_64-linux-gnu" \
+              "${BUNDLE}/usr/bin/liveagent" > /tmp/la.log 2>&1 &
+            LA_PID=$!
+            sleep 10
+
+            PASS=true
+            kill -0 $LA_PID 2>/dev/null && echo "PASS: Process running" || { echo "FAIL: Process died"; PASS=false; }
+            grep -q "MCP Bridge plugin initialized" /tmp/la.log 2>/dev/null && echo "PASS: MCP Bridge" || { echo "FAIL: MCP Bridge"; PASS=false; }
+            grep -q "WebSocket server listening" /tmp/la.log 2>/dev/null && echo "PASS: WebSocket" || { echo "FAIL: WebSocket"; PASS=false; }
+            WEBKIT=$(ps aux | grep -c "WebKitNetworkProcess\|WebKitWebProcess" || echo 0)
+            [ "$WEBKIT" -ge 1 ] && echo "PASS: WebKit: $WEBKIT" || echo "WARN: No WebKit"
+
+            echo ""
+            echo "=== Log ==="
+            cat /tmp/la.log 2>/dev/null
+
+            [ "$PASS" = "true" ] && echo "=== ALL CHECKS PASSED ===" || { echo "=== FAILED ==="; exit 1; }
+            kill $LA_PID 2>/dev/null || true
+            kill %1 2>/dev/null || true
+          '
+
+  # ===========================================================================
+  # Release stage
+  # ===========================================================================
+  release:
+    needs: [build, conda-constructor, verify-centos7]
+    runs-on: ubuntu-24.04
+    if: github.event.inputs.tag != ''
+    steps:
+      - name: Download tar.gz artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: liveagent-centos7
+          path: release/
+
+      - name: Download constructor installer
+        uses: actions/download-artifact@v4
+        with:
+          name: liveagent-constructor
+          path: release/
+
+      - name: Create release and upload
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          gh release create "$TAG" --generate-notes 2>/dev/null || true
+          gh release upload "$TAG" release/* --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
