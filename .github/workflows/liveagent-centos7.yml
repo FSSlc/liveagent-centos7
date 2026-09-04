@@ -78,7 +78,7 @@ jobs:
       - name: Install conda-build + constructor
         shell: bash -el {0}
         run: |
-          conda install -y conda-build constructor
+          conda install -y conda-build constructor -c https://prefix.dev/scns
 
       - name: Build conda package
         shell: bash -el {0}
