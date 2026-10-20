@@ -1,0 +1,104 @@
+# =============================================================================
+# CentOS 7 Real-Desktop Verification Environment
+#
+# A REAL desktop (Xvnc + Xfce4 + D-Bus session) running on CentOS 7,
+# viewable from a browser through noVNC. Used to verify that the
+# LiveAgent CentOS 7 package actually launches and renders a usable GUI
+# inside a genuine CentOS 7 desktop session — not just under Xvfb.
+#
+# Usage:
+#   docker build -f Dockerfile.desktop -t liveagent-centos7-desktop .
+#   bash verify-desktop.sh                     # automated end-to-end check
+#   bash verify-desktop.sh --interactive       # keep it running for manual use
+#
+# Manual use:
+#   docker run -d --name la-desktop -p 6081:6080 -p 5902:5901 \
+#       -v "$PWD/output/liveagent-centos7-x86_64.tar.gz:/pkg.tar.gz:ro" \
+#       liveagent-centos7-desktop
+#   docker exec la-desktop install-liveagent /pkg.tar.gz
+#   docker exec la-desktop launch-liveagent
+#   open http://localhost:6081/vnc.html?autoconnect=true
+# =============================================================================
+
+FROM centos:7
+
+ENV DISPLAY=:1 \
+    LC_ALL=en_US.UTF-8
+
+# --- CentOS 7 is EOL: repoint yum to vault.centos.org ---
+RUN sed -i "s/^mirrorlist/#mirrorlist/g" /etc/yum.repos.d/CentOS-*.repo && \
+    sed -i "s|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-*.repo && \
+    yum clean all -q
+
+# --- EPEL 7 is archived: repoint to archives.fedoraproject.org ---
+RUN yum install -y -q epel-release && \
+    sed -i "s/^mirrorlist/#mirrorlist/g" /etc/yum.repos.d/epel*.repo && \
+    sed -i "s|^#baseurl=https\?://download.fedoraproject.org/pub/epel|baseurl=https://archives.fedoraproject.org/pub/archive/epel|g" /etc/yum.repos.d/epel*.repo && \
+    sed -i "s|^#baseurl=https\?://download.example/pub/epel|baseurl=https://archives.fedoraproject.org/pub/archive/epel|g" /etc/yum.repos.d/epel*.repo && \
+    yum clean all -q
+
+# --- Real desktop stack: Xvnc (TigerVNC) + Xfce4 + D-Bus + X/GL libs ---
+# imagemagick/xorg-x11-utils provide `import`/`xwininfo` for screenshot-based
+# checks; xdotool drives keyboard/mouse interaction like a real user.
+RUN yum install -y -q \
+        tigervnc-server \
+        xfce4-session xfwm4 xfce4-panel xfdesktop xfce4-settings xfce4-terminal \
+        Thunar xterm dbus-x11 \
+        mesa-dri-drivers mesa-libEGL mesa-libGL mesa-libgbm \
+        libXrandr libXcursor libXinerama libXcomposite libXi libXdamage \
+        libXext libXfixes libXrender libX11 libxkbcommon \
+        dejavu-sans-fonts dejavu-serif-fonts \
+        liberation-fonts-common liberation-sans-fonts \
+        at-spi2-atk at-spi2-core \
+        python36 \
+        tar gzip curl which procps-ng net-tools \
+        ImageMagick xorg-x11-utils xorg-x11-apps xdotool \
+    && (yum install -y -q wqy-microhei-fonts google-noto-sans-cjk-fonts || true) \
+    && yum clean all -q
+
+# xfce-polkit comes in as a dependency but there is no PolicyKit daemon in the
+# container; it would pop a modal "Error - XFCE PolicyKit Agent" dialog on top
+# of the desktop.
+#
+# Do NOT `yum remove xfce-polkit`: on EPEL7 xfce4-session *requires* it, so
+# erasing the agent also erases xfce4-session.  The image then still boots Xvnc
+# but `startxfce4` no longer exists ("Couldn't exec startxfce4"), leaving a
+# black root window and no session bus for GUI apps.  Disabling the autostart
+# entry is enough to keep the dialog away.
+RUN rm -f /etc/xdg/autostart/xfce-polkit.desktop /etc/xdg/autostart/xfce4-power-manager.desktop
+
+# Fail the build (instead of shipping a headless "desktop") if the session
+# manager or its launcher went missing.
+RUN rpm -q xfce4-session && test -x /usr/bin/startxfce4 && \
+    echo "xfce4-session present: $(startxfce4 --version 2>/dev/null | head -1)"
+
+# --- noVNC + websockify (websockify 0.10 is the last python2-compatible one) ---
+RUN curl -fSL -o /tmp/novnc.tar.gz https://github.com/novnc/noVNC/archive/refs/tags/v1.2.0.tar.gz && \
+    mkdir -p /opt/novnc && tar -xzf /tmp/novnc.tar.gz -C /opt/novnc --strip-components=1 && \
+    ln -sf /opt/novnc/vnc.html /opt/novnc/index.html && \
+    curl -fSL -o /tmp/websockify.tar.gz https://github.com/novnc/websockify/archive/refs/tags/v0.10.0.tar.gz && \
+    mkdir -p /opt/websockify && tar -xzf /tmp/websockify.tar.gz -C /opt/websockify --strip-components=1 && \
+    rm -f /tmp/novnc.tar.gz /tmp/websockify.tar.gz
+
+# --- Pre-seed an Xfce panel so the first-run "Welcome to the panel" dialog
+#     never covers the app ---
+RUN mkdir -p /root/.config/xfce4/xfconf/xfce-perchannel-xml
+COPY desktop/xfce4-panel.xml /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml
+
+# --- Install the package (tar.gz) and register a real desktop entry ---
+COPY install.sh /usr/local/bin/install-liveagent
+COPY desktop/launch-liveagent.sh /usr/local/bin/launch-liveagent
+RUN chmod +x /usr/local/bin/install-liveagent /usr/local/bin/launch-liveagent
+
+# --- VNC session: launch a real Xfce4 desktop with D-Bus session bus ---
+RUN mkdir -p /root/.vnc && \
+    printf '#!/bin/sh\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexec dbus-launch --exit-with-session /usr/bin/startxfce4\n' \
+        > /root/.vnc/xstartup && \
+    chmod +x /root/.vnc/xstartup
+
+COPY docker-desktop-entrypoint.sh /usr/local/bin/desktop-entrypoint.sh
+RUN chmod +x /usr/local/bin/desktop-entrypoint.sh
+
+EXPOSE 6080 5901
+
+CMD ["/usr/local/bin/desktop-entrypoint.sh"]

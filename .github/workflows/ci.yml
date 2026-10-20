@@ -1,0 +1,184 @@
+name: build
+
+# Build the CentOS 7 bundle, the conda package and the constructor installer,
+# verify everything in a real CentOS 7 Xfce desktop, then (optionally) release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (leave empty to only build + verify)"
+        required: false
+        default: ""
+      appimage_url:
+        description: "LiveAgent AppImage URL"
+        required: false
+        default: "https://github.com/Stack-Cairn/LiveAgent/releases/download/v1.3.0/LiveAgent-v1.3.0-Linux-x86_64.AppImage"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Bundle (tar.gz) — same script as local builds
+  # ---------------------------------------------------------------------------
+  bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            curl ca-certificates file patchelf squashfs-tools binutils \
+            libwayland-client0 libwayland-cursor0 libwayland-egl1 libwayland-server0 \
+            libxkbcommon0 \
+            libfribidi0 libharfbuzz0b libfontconfig1 libfreetype6 libexpat1 \
+            libdrm2 libxcb1 libx11-6 libx11-xcb1 libgbm1 libegl1 libgl1
+
+      - name: Build bundle (tar.gz)
+        env:
+          APPIMAGE_URL: ${{ inputs.appimage_url }}
+        run: bash build.sh
+
+      - name: Build bundle for conda (no patchelf)
+        env:
+          APPIMAGE_URL: ${{ inputs.appimage_url }}
+          CONDA_BUILD: "1"
+          OUTPUT_DIR: ${{ github.workspace }}/output/conda-src
+        run: bash build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle
+          path: |
+            output/liveagent-centos7-x86_64.tar.gz
+            output/liveagent-centos7-x86_64.tar.gz.sha256
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conda-bundle
+          path: output/conda-src/liveagent-centos7-x86_64.tar.gz
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # 2. conda package + constructor installer
+  # ---------------------------------------------------------------------------
+  conda:
+    needs: bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: conda-bundle
+          path: conda-src/
+
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          python-version: "3.12"
+          activate-environment: build
+
+      - name: Install packaging tools
+        run: conda install -y -q -c conda-forge conda-build conda-index constructor
+
+      - name: Build conda package + installer
+        run: bash conda/build-conda.sh conda-src/liveagent-centos7-x86_64.tar.gz
+
+      - name: Checksums
+        run: |
+          ( cd output/conda-channel/linux-64 && \
+            ( sha256sum liveagent-*.conda 2>/dev/null || sha256sum liveagent-*.tar.bz2 ) ) \
+            > output/liveagent-conda.sha256
+          ( cd output && sha256sum liveagent-*-Linux-x86_64.sh ) > output/liveagent-installer.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conda
+          path: |
+            output/conda-channel/linux-64/liveagent-*.conda
+            output/conda-channel/linux-64/liveagent-*.tar.bz2
+            output/liveagent-*-Linux-x86_64.sh
+            output/liveagent-conda.sha256
+            output/liveagent-installer.sha256
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # 3. Real CentOS 7 desktop verification (tar.gz + constructor installer)
+  # ---------------------------------------------------------------------------
+  verify:
+    needs: [bundle, conda]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundle
+          path: output/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: conda
+          path: installer/
+
+      - name: Build CentOS 7 desktop image
+        run: docker build -f Dockerfile.desktop -t liveagent-centos7-desktop .
+
+      - name: Verify tar.gz in the real desktop
+        env:
+          OUTDIR: output/desktop-verify-targz
+        run: bash verify-desktop.sh
+
+      - name: Verify constructor installer in the real desktop
+        env:
+          OUTDIR: output/desktop-verify-installer
+        run: bash verify-desktop.sh "$(ls installer/liveagent-*-Linux-x86_64.sh | head -1)"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-screenshots
+          path: output/desktop-verify-*/
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # 4. Release: tar.gz + conda package + constructor installer (+ checksums)
+  # ---------------------------------------------------------------------------
+  release:
+    needs: [bundle, conda, verify]
+    if: inputs.tag != ''
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundle
+          path: release/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: conda
+          path: release/
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          ls -lh release/
+          gh release create "$TAG" --generate-notes 2>/dev/null || true
+          gh release upload "$TAG" release/* --clobber

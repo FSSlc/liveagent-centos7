@@ -1,3 +1,6 @@
 output/
 *.tar.gz
+*.tar.bz2
+*.conda
 *.sha256
+*.swp

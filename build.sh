@@ -57,18 +57,12 @@ done
 
 # ============================================================================
 # Step 3: Collect ALL system dependencies (recursive from ALL bundled ELF files)
+#
+# Requires the build host (Ubuntu 24.04) to have the graphics/X dev libraries
+# installed — see Dockerfile / the CI workflow.
 # ============================================================================
 echo ""
 echo ">>> Step 3: Collect system dependencies (full transitive closure)"
-
-# First, install missing system libs needed by AppImage but not bundled
-# (libwayland-*, libxkbcommon, libEGL, libGL, libX11, libdrm, etc.)
-apt-get install -y -qq --no-install-recommends \
-    libwayland-client0 libwayland-cursor0 libwayland-egl1 libwayland-server0 \
-    libxkbcommon0 \
-    libfribidi0 libharfbuzz0b libfontconfig1 libfreetype6 libexpat1 \
-    libdrm2 libxcb1 libx11-6 libx11-xcb1 libgbm1 libegl1 libgl1 \
-    > /dev/null 2>&1 || true
 
 # Get ALL unique deps from ALL bundled ELF files
 find "${BUNDLE_DIR}" -type f | while read -r f; do
@@ -150,7 +144,7 @@ cp -L /lib/x86_64-linux-gnu/libnss_dns.so.2 "${BUNDLE_DIR}/lib64/"
 cp -L /lib/x86_64-linux-gnu/libgcc_s.so.1 "${BUNDLE_DIR}/lib64/"
 cp -L /lib/x86_64-linux-gnu/libstdc++.so.6 "${BUNDLE_DIR}/lib64/"
 
-echo "Bundled glibc: $(strings "${BUNDLE_DIR}/lib64/ld-linux-x86-64.so.2" 2>/dev/null | grep 'GNU C Library' | head -1)"
+echo "Bundled glibc: $("${BUNDLE_DIR}/lib64/ld-linux-x86-64.so.2" --version 2>/dev/null | head -1)"
 echo "ld-linux size: $(stat -c%s "${BUNDLE_DIR}/lib64/ld-linux-x86-64.so.2") bytes"
 
 # ============================================================================
@@ -239,16 +233,38 @@ if [ -e "${src_ib}" ]; then
 fi
 
 # ============================================================================
+# Step 5b: Bundle a UTF-8 locale for the bundled glibc
+#
+# CentOS 7's glibc has no C.UTF-8 and cannot read locale files built by
+# glibc 2.39, so the launcher points the bundled libc at this directory via
+# LOCPATH.  Without it GTK/WebKit fall back to the C locale (broken CJK text
+# handling and "Locale not supported by C library" warnings).
+# ============================================================================
+echo ""
+echo ">>> Step 5b: Bundle C.UTF-8 locale"
+
+LOCALE_SRC="/usr/lib/locale/C.utf8"
+LOCALE_DST="${BUNDLE_DIR}/lib/locale/C.utf8"
+if [ -d "${LOCALE_SRC}" ]; then
+    mkdir -p "${BUNDLE_DIR}/lib/locale"
+    cp -aL "${LOCALE_SRC}" "${BUNDLE_DIR}/lib/locale/"
+    echo "  Bundled: C.utf8 ($(du -sh "${LOCALE_DST}" | cut -f1))"
+else
+    echo "  WARNING: ${LOCALE_SRC} not found; LiveAgent will run in the C locale"
+fi
+
+# ============================================================================
 # Step 6: Patch ELF binaries (RPATH + interpreter)
 #
-# In conda mode (CONDA_BUILD=1), skip patchelf — post-install.sh handles it.
-# In standalone mode, hardcode /opt/liveagent.
+# Standalone (default): hardcode /opt/liveagent, used by the tar.gz.
+# CONDA_BUILD=1: skip — the conda package patches at install time (post-link.sh)
+# so conda-build does not rewrite our RPATHs or the package is not portable.
 # ============================================================================
 echo ""
 echo ">>> Step 6: Patch ELF binaries"
 
 if [ "${CONDA_BUILD:-0}" = "1" ]; then
-    echo "Conda mode: skipping patchelf (handled by post-install.sh)"
+    echo "Conda mode: skipping patchelf (conda/post-link.sh does it at install time)"
 else
     BUNDLE_INSTALL_DIR="/opt/liveagent"
 
@@ -263,55 +279,22 @@ else
 fi
 
 # ============================================================================
-# Step 7: Create launcher script
+# Step 7: Install launcher script
 #
-# In conda mode, skip — post-install.sh creates the launcher with $PREFIX.
+# The launcher is a single, relocatable file shared by all install methods
+# (tar.gz, Docker, conda); conda/post-link.sh only patches ELF binaries and
+# symlinks it, so every install method runs exactly the same script.
 # ============================================================================
 echo ""
-echo ">>> Step 7: Create launcher script"
+echo ">>> Step 7: Install launcher script"
 
-if [ "${CONDA_BUILD:-0}" = "1" ]; then
-    echo "Conda mode: skipping launcher (handled by post-install.sh)"
-else
-
-cat > "${BUNDLE_DIR}/liveagent-centos7.sh" <<'LAUNCHER'
-#!/usr/bin/env bash
-# LiveAgent CentOS 7 Launcher
-# Uses bundled Ubuntu 24.04 glibc 2.39 via ld-linux bootstrap.
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUNDLE="${SCRIPT_DIR}"
-
-export LC_ALL=${LC_ALL:-C}
-export LANG=${LANG:-C}
-export GTK_PATH="${BUNDLE}/usr/lib/x86_64-linux-gnu/gtk-3.0"
-export GDK_BACKEND=x11
-export LD_LIBRARY_PATH="${BUNDLE}/lib64:${BUNDLE}/lib:${BUNDLE}/lib/x86_64-linux-gnu:${BUNDLE}/usr/lib:${BUNDLE}/usr/lib64:${BUNDLE}/usr/lib/x86_64-linux-gnu"
-export LIBGL_ALWAYS_SOFTWARE=1
-export WEBKIT_DISABLE_COMPOSITING_MODE=1
-export WEBKIT_DISABLE_DMABUF_RENDERER=1
-
-# Mesa: tell libglvnd where to find the Mesa EGL vendor library
-export __EGL_VENDOR_LIBRARY_FILENAMES="${BUNDLE}/share/glvnd/egl_vendor.d/50_mesa.json"
-
-# Mesa: tell Gallium where to find DRI drivers
-export LIBGL_DRIVERS_PATH="${BUNDLE}/lib/dri"
-export EGL_DRIVER_PATH="${BUNDLE}/lib/dri"
-
-# Mesa: force software rendering (swrast) for headless/container environments
-export GALLIUM_DRIVER=swrast
-export MESA_GL_VERSION_OVERRIDE=3.3
-export MESA_GLSL_VERSION_OVERRIDE=330
-
-# cd into bundle so relative paths (WebKitNetworkProcess, etc.) resolve correctly
-cd "${BUNDLE}"
-
-exec "${BUNDLE}/lib64/ld-linux-x86-64.so.2" \
-    --library-path "${LD_LIBRARY_PATH}" \
-    "${BUNDLE}/usr/bin/liveagent" "$@"
-LAUNCHER
-chmod +x "${BUNDLE_DIR}/liveagent-centos7.sh"
+if [ ! -f "${SCRIPT_DIR}/launcher.sh" ]; then
+    echo "ERROR: ${SCRIPT_DIR}/launcher.sh not found"
+    exit 1
 fi
+cp "${SCRIPT_DIR}/launcher.sh" "${BUNDLE_DIR}/liveagent-centos7.sh"
+chmod +x "${BUNDLE_DIR}/liveagent-centos7.sh"
+echo "  Installed: liveagent-centos7.sh"
 
 # ============================================================================
 # Step 8: Package output
@@ -325,8 +308,8 @@ tar -czf "${TARBALL}" .
 echo "Created: ${TARBALL}"
 echo "Size: $(du -sh "${TARBALL}" | cut -f1)"
 
-# Create SHA256 checksum
-sha256sum "${TARBALL}" > "${TARBALL}.sha256"
+# Create SHA256 checksum (relative name so it verifies anywhere)
+( cd "$(dirname "${TARBALL}")" && sha256sum "$(basename "${TARBALL}")" ) > "${TARBALL}.sha256"
 
 echo ""
 echo "=== Build Complete ==="
