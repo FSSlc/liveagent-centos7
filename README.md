@@ -86,9 +86,16 @@ constructor 安装器 **16/16**（安装器不注册菜单项，故少一项）�
 `.github/workflows/ci.yml`，`workflow_dispatch` 触发（填 `tag` 则发布 Release）：
 
 1. **bundle** — 生成 tar.gz（patchelf 到 `/opt/liveagent`）和 conda 用的未打补丁 bundle
-2. **conda** — 构建 `.conda` 包 + constructor 安装器
+2. **conda** — 构建 `.conda` 包 + constructor 安装器，并用 `conda create` 冒烟测试安装钩子（校验 ELF 已按 prefix 打补丁）
 3. **verify** — 构建 CentOS 7 桌面镜像，在真实桌面里分别安装并启动 tar.gz 与 `.sh`，上传截图
 4. **release** — 上传 tar.gz、`.conda`、`.sh` 及 SHA256 到 Release
+
+```bash
+# 只构建 + 验证
+gh workflow run build
+# 构建 + 验证 + 发布到指定 tag
+gh workflow run build -f tag=v1.3.0-centos7
+```
 
 ## 目录结构
 

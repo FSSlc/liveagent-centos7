@@ -98,6 +98,23 @@ jobs:
       - name: Build conda package + installer
         run: bash conda/build-conda.sh conda-src/liveagent-centos7-x86_64.tar.gz
 
+      # The recipe installs by unpacking the bundle and patching every ELF for
+      # the target prefix, so a plain `conda create` is enough to catch broken
+      # post-link hooks before the (slower) desktop verification runs.
+      - name: Smoke-test the conda package
+        run: |
+          conda create -y -q -p /tmp/la-test \
+            -c ./output/conda-channel -c conda-forge liveagent
+          test -x /tmp/la-test/bin/liveagent
+          test -x /tmp/la-test/opt/liveagent/usr/bin/liveagent
+          interp="$(/tmp/la-test/bin/patchelf --print-interpreter \
+            /tmp/la-test/opt/liveagent/usr/bin/liveagent)"
+          echo "interpreter: ${interp}"
+          case "${interp}" in
+            /tmp/la-test/opt/liveagent/lib64/*) ;;
+            *) echo "ERROR: ELF not patched for the install prefix"; exit 1 ;;
+          esac
+
       - name: Checksums
         run: |
           ( cd output/conda-channel/linux-64 && \
@@ -105,15 +122,22 @@ jobs:
             > output/liveagent-conda.sha256
           ( cd output && sha256sum liveagent-*-Linux-x86_64.sh ) > output/liveagent-installer.sha256
 
+      # upload-artifact keeps the path layout relative to the least common
+      # ancestor; staging everything in dist/ keeps the release assets flat so
+      # `gh release upload release/*` also picks up the conda package.
+      - name: Stage release files
+        run: |
+          mkdir -p dist
+          cp output/conda-channel/linux-64/liveagent-*.conda dist/ 2>/dev/null || \
+            cp output/conda-channel/linux-64/liveagent-*.tar.bz2 dist/
+          cp output/liveagent-*-Linux-x86_64.sh dist/
+          cp output/liveagent-conda.sha256 output/liveagent-installer.sha256 dist/
+          ls -lh dist/
+
       - uses: actions/upload-artifact@v4
         with:
           name: conda
-          path: |
-            output/conda-channel/linux-64/liveagent-*.conda
-            output/conda-channel/linux-64/liveagent-*.tar.bz2
-            output/liveagent-*-Linux-x86_64.sh
-            output/liveagent-conda.sha256
-            output/liveagent-installer.sha256
+          path: dist/
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -138,6 +162,13 @@ jobs:
 
       - name: Build CentOS 7 desktop image
         run: docker build -f Dockerfile.desktop -t liveagent-centos7-desktop .
+
+      # verify-desktop.sh uses OCR to prove keystrokes reach the UI; make sure
+      # the check is never silently downgraded to a warning on the runner.
+      - name: Install OCR tool
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tesseract-ocr
 
       - name: Verify tar.gz in the real desktop
         env:
