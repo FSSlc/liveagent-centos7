@@ -297,6 +297,47 @@ chmod +x "${BUNDLE_DIR}/liveagent-centos7.sh"
 echo "  Installed: liveagent-centos7.sh"
 
 # ============================================================================
+# Step 7b: Deduplicate identical files with hardlinks
+#
+# The bundle carries the same library several times over:
+#   * Step 2 flattens every existing *.so* into lib64/ while the original copy
+#     stays in usr/lib/
+#   * `cp -L` dereferences the distro's symlink chains, so libfoo.so,
+#     libfoo.so.0 and libfoo.so.0.8 are three full copies of one library
+# That is ~45% of the payload (libwebkit2gtk, libLLVM, libicudata, ...).
+#
+# tar stores hardlinked files once, so linking byte-identical copies shrinks the
+# archive a lot while every path and every byte the app can see stay identical.
+# This runs after Step 6 so the links point at the final (patched) content.
+# ============================================================================
+echo ""
+echo ">>> Step 7b: Deduplicate identical files"
+
+# Paths containing spaces are skipped (sha256sum output is line based); this is
+# a pure size optimisation, skipping a file can never change behaviour.
+find "${BUNDLE_DIR}" -type f -size +4k ! -name '* *' -print0 \
+    | xargs -0 -r sha256sum > "${WORK_DIR}/hashes.txt"
+
+sort "${WORK_DIR}/hashes.txt" | awk '
+    { hash = $1; path = $2 }
+    hash == previous { print path "\t" first; next }
+    { previous = hash; first = path }
+' > "${WORK_DIR}/duplicates.txt"
+
+linked=0
+while IFS=$'\t' read -r duplicate original; do
+    [ -f "${original}" ] && [ -f "${duplicate}" ] || continue
+    # Hardlinks share one permission set, so never merge files whose modes differ.
+    [ "$(stat -c %a "${original}")" = "$(stat -c %a "${duplicate}")" ] || continue
+    if ln -f "${original}" "${duplicate}" 2>/dev/null; then
+        linked=$((linked + 1))
+    fi
+done < "${WORK_DIR}/duplicates.txt"
+
+echo "  Hardlinked ${linked} duplicate files"
+echo "  Bundle size: $(du -sh "${BUNDLE_DIR}" | cut -f1)"
+
+# ============================================================================
 # Step 8: Package output
 # ============================================================================
 echo ""

@@ -15,13 +15,27 @@ Ubuntu 24.04 glibc 2.39 / GTK3 / WebKitGTK / Mesa 一起打包，使其能在 Ce
 
 所有修正集中在唯一启动器 [`launcher.sh`](launcher.sh)（tar.gz / Docker / conda 共用）。
 
+### 体积
+
+AppImage 里同一个库存在多份：`lib64/` 的扁平副本与 `usr/lib/` 原文各一份，且 `cp -L`
+把 `.so → .so.0 → .so.0.x` 的符号链接链展开成了多份完整文件。`build.sh` 在打包前
+（Step 7b）把**字节完全相同**的文件改成硬链接，tar 只存一份：
+
+| | 解包后 | tar.gz |
+| --- | --- | --- |
+| 去重前 | 901MB | 305MB |
+| 去重后 | 496MB | **168MB** |
+
+路径、文件数（624）和权限都不变，运行时行为没有差别（权限不同的文件会被跳过，
+硬链接会共享 mode）；静态库/头文件/文档在 AppImage 里本来就没有，没有可删的死重量。
+
 ## 产物
 
 | 文件 | 说明 |
 | --- | --- |
-| `liveagent-centos7-x86_64.tar.gz` | 自包含 bundle（305MB），配 `install.sh` 安装到 `/opt/liveagent` 并注册应用菜单 |
-| `liveagent-1.3.0-centos7_0.conda` | conda 包，`conda install` 后自动 patchelf 到当前 prefix |
-| `liveagent-1.3.0-Linux-x86_64.sh` | constructor 自解压安装器 |
+| `liveagent-centos7-x86_64.tar.gz` | 自包含 bundle（168MB），配 `install.sh` 安装到 `/opt/liveagent` 并注册应用菜单 |
+| `liveagent-1.3.0-centos7_0.conda` | conda 包（166MB），`conda install` 后自动 patchelf 到当前 prefix |
+| `liveagent-1.3.0-Linux-x86_64.sh` | constructor 自解压安装器（218MB，含 conda 运行时） |
 
 ## 构建
 
