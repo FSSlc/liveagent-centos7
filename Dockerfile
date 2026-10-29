@@ -4,7 +4,7 @@
 # The bundling logic lives in build.sh (shared with local builds and CI), so
 # this image and `bash build.sh` produce the same package.
 #
-#   docker build -t liveagent-centos7 .
+#   docker build --build-arg APPIMAGE_URL=https://github.com/Stack-Cairn/LiveAgent/releases/download/vX.Y.Z/LiveAgent-vX.Y.Z-Linux-x86_64.AppImage -t liveagent-centos7 .
 #   docker create --name tmp liveagent-centos7
 #   docker cp tmp:/output/liveagent-centos7-x86_64.tar.gz .
 #   docker rm tmp
@@ -26,7 +26,7 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
         libdrm2 libxcb1 libx11-6 libx11-xcb1 libgbm1 libegl1 libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
-ARG APPIMAGE_URL=https://github.com/Stack-Cairn/LiveAgent/releases/download/v1.3.0/LiveAgent-v1.3.0-Linux-x86_64.AppImage
+ARG APPIMAGE_URL
 # CONDA_BUILD=1 skips patchelf (conda patches at install time) — used to build
 # the bundle that goes into the conda package.
 ARG CONDA_BUILD=0

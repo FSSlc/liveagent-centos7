@@ -10,14 +10,14 @@
 # =============================================================================
 
 {% set name = "liveagent" %}
-{% set version = os.environ.get("LIVEAGENT_VERSION", "1.3.0") %}
+{% set version = os.environ.get("LIVEAGENT_VERSION") %}
 
 name: {{ name }}
 version: "{{ version }}"
 
 channels:
   - ./output/conda-channel
-  - conda-forge
+  - https://prefix.dev/scns
 
 specs:
   - liveagent {{ version }} centos7_0

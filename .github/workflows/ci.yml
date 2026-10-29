@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag, e.g. v1.3.0 (derives the AppImage URL and the conda package version)"
+        description: "Release tag, e.g. vX.Y.Z (derives the AppImage URL and the conda package version)"
         required: true
         type: string
 
@@ -90,7 +90,7 @@ jobs:
           activate-environment: build
 
       - name: Install packaging tools
-        run: conda install -y -q -c https://prefix.dev/scns conda-build constructor
+        run: conda install -y -q -c https://prefix.dev/scns python conda conda-build constructor
 
       - name: Build conda package + installer
         run: |

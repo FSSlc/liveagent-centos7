@@ -1,6 +1,6 @@
 # LiveAgent for CentOS 7
 
-把 [LiveAgent](https://github.com/Stack-Cairn/LiveAgent) v1.3.0 AppImage 连同它需要的
+把 [LiveAgent](https://github.com/Stack-Cairn/LiveAgent) 指定版本的 AppImage 连同它需要的
 Ubuntu 24.04 glibc 2.39 / GTK3 / WebKitGTK / Mesa 一起打包，使其能在 CentOS 7
 （glibc 2.17、kernel 3.10、无 GPU 的真实 Xfce 桌面）直接安装、启动和使用。
 
@@ -34,23 +34,28 @@ AppImage 里同一个库存在多份：`lib64/` 的扁平副本与 `usr/lib/` �
 | 文件 | 说明 |
 | --- | --- |
 | `liveagent-centos7-x86_64.tar.gz` | 自包含 bundle（168MB），配 `install.sh` 安装到 `/opt/liveagent` 并注册应用菜单 |
-| `liveagent-1.3.0-centos7_0.conda` | conda 包（166MB），`conda install` 后自动 patchelf 到当前 prefix |
-| `liveagent-1.3.0-Linux-x86_64.sh` | constructor 自解压安装器（218MB，含 conda 运行时） |
+| `liveagent-<version>-centos7_0.conda` | conda 包（166MB），`conda install` 后自动 patchelf 到当前 prefix |
+| `liveagent-<version>-Linux-x86_64.sh` | constructor 自解压安装器（218MB，含 conda 运行时） |
 
 ## 构建
 
 ```bash
 # 1) tar.gz（Ubuntu 24.04，需要 patchelf / squashfs-tools）
-bash build.sh
+APPIMAGE_URL=https://github.com/Stack-Cairn/LiveAgent/releases/download/vX.Y.Z/LiveAgent-vX.Y.Z-Linux-x86_64.AppImage \
+  bash build.sh
 
 # 或全容器构建
-docker build -t liveagent-centos7 . && \
+docker build \
+  --build-arg APPIMAGE_URL=https://github.com/Stack-Cairn/LiveAgent/releases/download/vX.Y.Z/LiveAgent-vX.Y.Z-Linux-x86_64.AppImage \
+  -t liveagent-centos7 . && \
 docker create --name tmp liveagent-centos7 && \
 docker cp tmp:/output/liveagent-centos7-x86_64.tar.gz . && docker rm tmp
 
 # 2) conda 包 + constructor 安装器（需要 conda-build / conda-index / constructor）
 #    先构建一份不做 patchelf 的 bundle：conda 在安装时按 prefix 打补丁
-CONDA_BUILD=1 OUTPUT_DIR=output/conda-src bash build.sh
+APPIMAGE_URL=https://github.com/Stack-Cairn/LiveAgent/releases/download/vX.Y.Z/LiveAgent-vX.Y.Z-Linux-x86_64.AppImage \
+  CONDA_BUILD=1 OUTPUT_DIR=output/conda-src bash build.sh
+export LIVEAGENT_VERSION=X.Y.Z
 bash conda/build-conda.sh
 ```
 
@@ -64,7 +69,7 @@ sudo bash install.sh liveagent-centos7-x86_64.tar.gz
 conda install -c ./output/conda-channel liveagent && liveagent
 
 # c) constructor 安装器
-bash liveagent-1.3.0-Linux-x86_64.sh -b -p ~/liveagent && ~/liveagent/bin/liveagent
+bash liveagent-<version>-Linux-x86_64.sh -b -p ~/liveagent && ~/liveagent/bin/liveagent
 ```
 
 > `.desktop` 入口执行的是 `liveagent-centos7.sh`（启动器），**不是** AppImage 的
@@ -75,7 +80,7 @@ bash liveagent-1.3.0-Linux-x86_64.sh -b -p ~/liveagent && ~/liveagent/bin/liveag
 ```bash
 docker build -f Dockerfile.desktop -t liveagent-centos7-desktop .   # 首次构建装完整 Xfce，较慢
 bash verify-desktop.sh                        # 验证 tar.gz
-bash verify-desktop.sh liveagent-1.3.0-Linux-x86_64.sh   # 验证 constructor 安装器
+bash verify-desktop.sh liveagent-<version>-Linux-x86_64.sh   # 验证 constructor 安装器
 bash verify-desktop.sh --interactive          # 保留容器，按提示用 noVNC 手动体验
 ```
 
@@ -93,11 +98,11 @@ bash verify-desktop.sh --interactive          # 保留容器，按提示用 noVN
 constructor 安装器 **16/16**（安装器不注册菜单项，故少一项）。
 
 > constructor 安装器要求文件名以 `.sh` 结尾，重命名后会被拒绝执行。安装是批处理模式：
-> `bash liveagent-1.3.0-Linux-x86_64.sh -b -p ~/liveagent`。
+> `bash liveagent-<version>-Linux-x86_64.sh -b -p ~/liveagent`。
 
 ## GitHub Actions
 
-`.github/workflows/ci.yml`，`workflow_dispatch` 触发，唯一参数 `tag`（如 `v1.3.0`）：
+`.github/workflows/ci.yml`，`workflow_dispatch` 触发，唯一参数 `tag`（如 `vX.Y.Z`）：
 AppImage 下载地址与 conda 包版本号都由该 tag 推导。
 
 1. **bundle** — 生成 tar.gz（patchelf 到 `/opt/liveagent`）和 conda 用的未打补丁 bundle
@@ -106,7 +111,7 @@ AppImage 下载地址与 conda 包版本号都由该 tag 推导。
 4. **release** — 上传 tar.gz、`.conda`、`.sh` 及 SHA256 到 Release
 
 ```bash
-gh workflow run build -f tag=v1.3.0
+gh workflow run build -f tag=vX.Y.Z
 ```
 
 ## 目录结构

@@ -7,7 +7,7 @@
 # =============================================================================
 
 {% set name = "liveagent" %}
-{% set version = environ.get("LIVEAGENT_VERSION", "1.3.0") %}
+{% set version = environ.get("LIVEAGENT_VERSION") %}
 
 package:
   name: {{ name }}

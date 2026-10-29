@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-APPIMAGE_URL="${APPIMAGE_URL:-https://github.com/Stack-Cairn/LiveAgent/releases/download/v1.3.0/LiveAgent-v1.3.0-Linux-x86_64.AppImage}"
+APPIMAGE_URL="${APPIMAGE_URL:?用法: APPIMAGE_URL=https://github.com/Stack-Cairn/LiveAgent/releases/download/vX.Y.Z/LiveAgent-vX.Y.Z-Linux-x86_64.AppImage bash build.sh}"
 
 WORK_DIR="${WORK_DIR:-/tmp/liveagent-build}"
 OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/output}"

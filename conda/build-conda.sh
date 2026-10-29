@@ -5,6 +5,7 @@
 # Usage:
 #   bash build.sh                                   # tar.gz for install.sh
 #   CONDA_BUILD=1 OUTPUT_DIR=output/conda-src bash build.sh   # unpatched bundle
+#   export LIVEAGENT_VERSION=<version>              # e.g. X.Y.Z
 #   bash conda/build-conda.sh [unpatched.tar.gz]
 #
 # The conda bundle must be built with CONDA_BUILD=1: conda packages binaries
@@ -12,12 +13,14 @@
 # by conda/post-link.sh instead.
 #
 # Artifacts:
-#   output/conda-channel/linux-64/liveagent-1.3.0-centos7_0.conda
-#   output/liveagent-1.3.0-Linux-x86_64.sh
+#   output/conda-channel/linux-64/liveagent-<version>-centos7_0.conda
+#   output/liveagent-<version>-Linux-x86_64.sh
 #
-# Requires: conda, conda-build, conda-index, constructor (conda-forge).
+# Requires: conda, conda-build, constructor (https://prefix.dev/scns).
 # =============================================================================
 set -euo pipefail
+
+: "${LIVEAGENT_VERSION:?请设置 LIVEAGENT_VERSION（如 export LIVEAGENT_VERSION=X.Y.Z）}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${ROOT}/output"
@@ -31,7 +34,7 @@ cp "${TARBALL}" "${ROOT}/conda/liveagent-centos7-x86_64.tar.gz"
 trap 'rm -f "${ROOT}/conda/liveagent-centos7-x86_64.tar.gz"' EXIT
 # --no-include-recipe: the recipe source contains the 305MB bundle, and conda-build
 # would otherwise copy it into info/recipe inside the package (doubling its size).
-conda build -c conda-forge --no-include-recipe --output-folder "${CHANNEL}" "${ROOT}/conda"
+conda build -c https://prefix.dev/scns --no-include-recipe --output-folder "${CHANNEL}" "${ROOT}/conda"
 
 echo ""
 echo ">>> local channel index"
