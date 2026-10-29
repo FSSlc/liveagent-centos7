@@ -7,7 +7,7 @@
 # =============================================================================
 
 {% set name = "liveagent" %}
-{% set version = "1.3.0" %}
+{% set version = environ.get("LIVEAGENT_VERSION", "1.3.0") %}
 
 package:
   name: {{ name }}
@@ -27,9 +27,9 @@ requirements:
 
 about:
   home: https://github.com/Stack-Cairn/LiveAgent
-  summary: LiveAgent v1.3.0 — packaged for CentOS 7 with bundled glibc 2.39
+  summary: LiveAgent v{{ version }} — packaged for CentOS 7 with bundled glibc 2.39
   description: |
-    LiveAgent v1.3.0 bundled with all runtime dependencies, including Ubuntu
+    LiveAgent v{{ version }} bundled with all runtime dependencies, including Ubuntu
     24.04 glibc 2.39, GTK3, WebKitGTK and Mesa. An ld-linux bootstrap lets the
     app run on CentOS 7 (glibc 2.17); patchelf is applied at install time so
     the package is relocatable.

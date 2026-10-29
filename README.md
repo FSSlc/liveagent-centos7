@@ -97,7 +97,8 @@ constructor 安装器 **16/16**（安装器不注册菜单项，故少一项）�
 
 ## GitHub Actions
 
-`.github/workflows/ci.yml`，`workflow_dispatch` 触发（填 `tag` 则发布 Release）：
+`.github/workflows/ci.yml`，`workflow_dispatch` 触发，唯一参数 `tag`（如 `v1.3.0`）：
+AppImage 下载地址与 conda 包版本号都由该 tag 推导。
 
 1. **bundle** — 生成 tar.gz（patchelf 到 `/opt/liveagent`）和 conda 用的未打补丁 bundle
 2. **conda** — 构建 `.conda` 包 + constructor 安装器，并用 `conda create` 冒烟测试安装钩子（校验 ELF 已按 prefix 打补丁）
@@ -105,10 +106,7 @@ constructor 安装器 **16/16**（安装器不注册菜单项，故少一项）�
 4. **release** — 上传 tar.gz、`.conda`、`.sh` 及 SHA256 到 Release
 
 ```bash
-# 只构建 + 验证
-gh workflow run build
-# 构建 + 验证 + 发布到指定 tag
-gh workflow run build -f tag=v1.3.0-centos7
+gh workflow run build -f tag=v1.3.0
 ```
 
 ## 目录结构

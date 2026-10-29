@@ -7,13 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (leave empty to only build + verify)"
-        required: false
-        default: ""
-      appimage_url:
-        description: "LiveAgent AppImage URL"
-        required: false
-        default: "https://github.com/Stack-Cairn/LiveAgent/releases/download/v1.3.0/LiveAgent-v1.3.0-Linux-x86_64.AppImage"
+        description: "Release tag, e.g. v1.3.0 (derives the AppImage URL and the conda package version)"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -29,6 +25,8 @@ jobs:
   bundle:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      APPIMAGE_URL: https://github.com/Stack-Cairn/LiveAgent/releases/download/${{ inputs.tag }}/LiveAgent-${{ inputs.tag }}-Linux-x86_64.AppImage
     steps:
       - uses: actions/checkout@v4
 
@@ -43,13 +41,10 @@ jobs:
             libdrm2 libxcb1 libx11-6 libx11-xcb1 libgbm1 libegl1 libgl1
 
       - name: Build bundle (tar.gz)
-        env:
-          APPIMAGE_URL: ${{ inputs.appimage_url }}
         run: bash build.sh
 
       - name: Build bundle for conda (no patchelf)
         env:
-          APPIMAGE_URL: ${{ inputs.appimage_url }}
           CONDA_BUILD: "1"
           OUTPUT_DIR: ${{ github.workspace }}/output/conda-src
         run: bash build.sh
@@ -78,6 +73,8 @@ jobs:
     defaults:
       run:
         shell: bash -el {0}
+    env:
+      TAG: ${{ inputs.tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -93,10 +90,12 @@ jobs:
           activate-environment: build
 
       - name: Install packaging tools
-        run: conda install -y -q -c conda-forge constructor conda=25.7.* conda-build=25.7.* conda-index
+        run: conda install -y -q -c https://prefix.dev/scns conda-build constructor
 
       - name: Build conda package + installer
-        run: bash conda/build-conda.sh conda-src/liveagent-centos7-x86_64.tar.gz
+        run: |
+          export LIVEAGENT_VERSION="${TAG#v}"
+          bash conda/build-conda.sh conda-src/liveagent-centos7-x86_64.tar.gz
 
       # The recipe installs by unpacking the bundle and patching every ELF for
       # the target prefix, so a plain `conda create` is enough to catch broken
@@ -104,7 +103,7 @@ jobs:
       - name: Smoke-test the conda package
         run: |
           conda create -y -q -p /tmp/la-test \
-            -c ./output/conda-channel -c conda-forge liveagent
+            -c ./output/conda-channel -c https://prefix.dev/scns liveagent
           test -x /tmp/la-test/bin/liveagent
           test -x /tmp/la-test/opt/liveagent/usr/bin/liveagent
           interp="$(/tmp/la-test/bin/patchelf --print-interpreter \
@@ -192,7 +191,6 @@ jobs:
   # ---------------------------------------------------------------------------
   release:
     needs: [bundle, conda, verify]
-    if: inputs.tag != ''
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4

@@ -9,19 +9,22 @@
 # Install: bash liveagent-<version>-Linux-x86_64.sh -b -p ~/liveagent && ~/liveagent/bin/liveagent
 # =============================================================================
 
-name: liveagent
-version: "1.3.0"
+{% set name = "liveagent" %}
+{% set version = os.environ.get("LIVEAGENT_VERSION", "1.3.0") %}
+
+name: {{ name }}
+version: "{{ version }}"
 
 channels:
   - ./output/conda-channel
   - conda-forge
 
 specs:
-  - liveagent 1.3.0 centos7_0
+  - liveagent {{ version }} centos7_0
 
 # Patches the bundle for the chosen install prefix (also runs as conda post-link).
 post_install: conda/post-link.sh
 
-installer_filename: liveagent-1.3.0-Linux-x86_64.sh
+installer_filename: liveagent-{{ version }}-Linux-x86_64.sh
 initialize_by_default: false
 register_python_default: false
