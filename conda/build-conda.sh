@@ -31,7 +31,7 @@ cp "${TARBALL}" "${ROOT}/conda/liveagent-centos7-x86_64.tar.gz"
 trap 'rm -f "${ROOT}/conda/liveagent-centos7-x86_64.tar.gz"' EXIT
 # --no-include-recipe: the recipe source contains the 305MB bundle, and conda-build
 # would otherwise copy it into info/recipe inside the package (doubling its size).
-conda build --no-include-recipe --output-folder "${CHANNEL}" "${ROOT}/conda"
+conda build -c conda-forge --no-include-recipe --output-folder "${CHANNEL}" "${ROOT}/conda"
 
 echo ""
 echo ">>> local channel index"
