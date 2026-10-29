@@ -90,7 +90,7 @@ jobs:
           activate-environment: build
 
       - name: Install packaging tools
-        run: conda install -y -q -c https://prefix.dev/scns python conda conda-build constructor
+        run: conda install -y -q -c https://prefix.dev/scns python conda conda-build constructor "setuptools<82"
 
       - name: Build conda package + installer
         run: |
