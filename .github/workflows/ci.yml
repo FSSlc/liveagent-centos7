@@ -103,7 +103,7 @@ jobs:
       - name: Smoke-test the conda package
         run: |
           conda create -y -q -p /tmp/la-test \
-            -c local -c https://prefix.dev/scns liveagent
+            -c $HOME/miniconda3/envs/build/conda-bld -c https://prefix.dev/scns liveagent
           test -x /tmp/la-test/bin/liveagent
           test -x /tmp/la-test/opt/liveagent/usr/bin/liveagent
           interp="$(/tmp/la-test/bin/patchelf --print-interpreter \
