@@ -103,7 +103,7 @@ jobs:
       - name: Smoke-test the conda package
         run: |
           conda create -y -q -p /tmp/la-test \
-            -c ./output/conda-channel -c https://prefix.dev/scns liveagent
+            -c local -c https://prefix.dev/scns liveagent
           test -x /tmp/la-test/bin/liveagent
           test -x /tmp/la-test/opt/liveagent/usr/bin/liveagent
           interp="$(/tmp/la-test/bin/patchelf --print-interpreter \
@@ -116,7 +116,7 @@ jobs:
 
       - name: Checksums
         run: |
-          ( cd output/conda-channel/linux-64 && \
+          ( cd $HOME/miniconda3/envs/build/conda-bld/linux-64 && \
             ( sha256sum liveagent-*.conda 2>/dev/null || sha256sum liveagent-*.tar.bz2 ) ) \
             > output/liveagent-conda.sha256
           ( cd output && sha256sum liveagent-*-Linux-x86_64.sh ) > output/liveagent-installer.sha256
@@ -127,8 +127,8 @@ jobs:
       - name: Stage release files
         run: |
           mkdir -p dist
-          cp output/conda-channel/linux-64/liveagent-*.conda dist/ 2>/dev/null || \
-            cp output/conda-channel/linux-64/liveagent-*.tar.bz2 dist/
+          cp $HOME/miniconda3/envs/build/conda-bld/linux-64/liveagent-*.conda dist/ 2>/dev/null || \
+            cp $HOME/miniconda3/envs/build/conda-bld/linux-64/liveagent-*.tar.bz2 dist/
           cp output/liveagent-*-Linux-x86_64.sh dist/
           cp output/liveagent-conda.sha256 output/liveagent-installer.sha256 dist/
           ls -lh dist/

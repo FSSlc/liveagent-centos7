@@ -24,7 +24,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${ROOT}/output"
-CHANNEL="${OUT}/conda-channel"
+CHANNEL="$HOME/miniconda3/envs/build/conda-bld"
 TARBALL="${1:-${OUT}/conda-src/liveagent-centos7-x86_64.tar.gz}"
 
 [ -f "${TARBALL}" ] || { echo "ERROR: bundle not found: ${TARBALL} (run build.sh first)" >&2; exit 1; }

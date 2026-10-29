@@ -16,7 +16,7 @@ name: {{ name }}
 version: "{{ version }}"
 
 channels:
-  - ./output/conda-channel
+  - local
   - https://prefix.dev/scns
 
 specs:
