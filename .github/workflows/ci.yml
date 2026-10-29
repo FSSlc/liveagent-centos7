@@ -93,7 +93,7 @@ jobs:
           activate-environment: build
 
       - name: Install packaging tools
-        run: conda install -y -q -c conda-forge conda-build conda-index constructor
+        run: conda install -y -q -c conda-forge constructor conda=25.7.* conda-build=25.7.* conda-index
 
       - name: Build conda package + installer
         run: bash conda/build-conda.sh conda-src/liveagent-centos7-x86_64.tar.gz
