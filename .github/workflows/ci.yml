@@ -207,7 +207,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
+          REPO: ${{ github.repository }}
         run: |
           ls -lh release/
-          gh release create "$TAG" --generate-notes 2>/dev/null || true
-          gh release upload "$TAG" release/* --clobber
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "release $TAG 已存在，跳过创建"
+          else
+            gh release create "$TAG" --repo "$REPO" --generate-notes
+          fi
+          gh release upload "$TAG" release/* --repo "$REPO" --clobber
